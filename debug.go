@@ -39,7 +39,20 @@ type GOOSE_ERROR struct {
     Message string
 }
 
-func Read_got(pid int, got *heap_functions_got) int {
+func heap_summary(allocd_bufs *map[uintptr]*allocated_buffer, invalid_frees *[]*allocated_buffer) int {
+    if len(*allocd_bufs) == 0 && len(*invalid_frees) == 0 {
+        fmt.Printf("No memory errors!\n")
+    }
+    for addr, buffer := range *allocd_bufs {
+        fmt.Printf("Leaked buffer: 0x%016x of size %d\n", addr, buffer.size)
+    }
+    for _, buffer := range *invalid_frees {
+        fmt.Printf("Invalid free on address 0x%016x\n", buffer.addr)
+    }
+    return 0
+}
+
+func read_got(pid int, got *heap_functions_got) int {
     for i := CALLOC; i <= FREE; i++ {
         if got.got_offsets[i] == 0 {
             continue
@@ -62,11 +75,11 @@ type breakpoint struct {
     addr_aligned    uintptr
     original_code   [8]byte
     new_code        [8]byte
-    allocd_buf      *Allocated_buffer
+    allocd_buf      *allocated_buffer
     index           int
 }
 
-type Allocated_buffer struct {
+type allocated_buffer struct {
     addr    uintptr
     size    uint64
 }

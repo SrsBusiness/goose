@@ -13,9 +13,10 @@ import (
 func goose_loop(pid int, got *heap_functions_got) int {
     var breakpoints map[uintptr]*breakpoint =
         make(map[uintptr]*breakpoint)
-    //var allocd_bufs map[uintptr]*allocated_buffer =
-    //    make(map[uintptr]*allocated_buffer)
+    var allocd_bufs map[uintptr]*allocated_buffer =
+        make(map[uintptr]*allocated_buffer)
 
+    var invalid_frees []*allocated_buffer
     /* Set breakpoints on calloc(), malloc(), realloc(), free() */
     for i := CALLOC; i <= FREE; i++ {
         if got.addrs[i] == 0{
@@ -35,7 +36,7 @@ func goose_loop(pid int, got *heap_functions_got) int {
     for {
         if status != 0 {
             if status == 2 {
-                return 0
+                return heap_summary(&allocd_bufs, &invalid_frees)
             }
             return 1
         }
@@ -56,28 +57,51 @@ func goose_loop(pid int, got *heap_functions_got) int {
         var bp_ret breakpoint
         switch(bp.index) {
         case CALLOC:
-            fmt.Printf("calloc(%d, %d)\n", rdi, rsi)
             return_from_function(pid, return_addr, &bp_ret, &regset)
+            /* Retrieve return value from RAX */
+            fmt.Printf("calloc(%d, %d) -> 0x%016x\n", rdi, rsi, regset.Rax)
+            var new_buf *allocated_buffer = new(allocated_buffer)
+            new_buf.addr = uintptr(regset.Rax)
+            new_buf.size = rdi * rsi
+            allocd_bufs[new_buf.addr] = new_buf
             breakpoint_step(pid, &bp_ret, &regset)
             if !got.resolved[CALLOC] {
                 resolve_address(pid, bp_addr, got, CALLOC, bp, &breakpoints)
             }
         case MALLOC:
-            fmt.Printf("malloc(%d)\n", rdi)
             return_from_function(pid, return_addr, &bp_ret, &regset)
+            /* Retrieve return value from RAX */
+            fmt.Printf("malloc(%d) -> 0x%016x\n", rdi, regset.Rax)
+            var new_buf *allocated_buffer = new(allocated_buffer)
+            new_buf.addr = uintptr(regset.Rax)
+            new_buf.size = rdi
+            allocd_bufs[new_buf.addr] = new_buf
             breakpoint_step(pid, &bp_ret, &regset)
             if !got.resolved[MALLOC] {
                 resolve_address(pid, bp_addr, got, MALLOC, bp, &breakpoints)
             }
         case REALLOC:
-            fmt.Printf("realloc(0x%016x, %d)\n", rdi, rsi)
             return_from_function(pid, return_addr, &bp_ret, &regset)
+            /* Retrieve return value from RAX */
+            fmt.Printf("realloc(0x%016x, %d) -> 0x%016x\n", rdi, rsi, regset.Rax)
+            var new_buf *allocated_buffer = new(allocated_buffer)
+            new_buf.addr = uintptr(regset.Rax)
+            new_buf.size = rsi
+            allocd_bufs[new_buf.addr] = new_buf
             breakpoint_step(pid, &bp_ret, &regset)
             if !got.resolved[REALLOC] {
                 resolve_address(pid, bp_addr, got, REALLOC, bp, &breakpoints)
             }
         case FREE:
             fmt.Printf("free(0x%016x)\n", rdi)
+            buf, ok := allocd_bufs[uintptr(rdi)]
+            if ! ok {
+                buf = new(allocated_buffer) 
+                buf.addr = uintptr(rdi)
+                invalid_frees = append(invalid_frees, buf)
+            } else {
+                delete(allocd_bufs, buf.addr)
+            }
             if !got.resolved[FREE] {
                 return_from_function(pid, return_addr, &bp_ret, &regset)
                 breakpoint_step(pid, &bp_ret, &regset)
@@ -146,7 +170,7 @@ func main_c(argv []string) int {
     }
 
     fmt.Printf("Child pid: %d\n", child_pid)
-    Read_got(child_pid, &got)
+    read_got(child_pid, &got)
     return goose_loop(child_pid, &got)
 
     return 0;
