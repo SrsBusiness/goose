@@ -152,6 +152,29 @@ func print_regset(regset *syscall.PtraceRegs) {
     fmt.Printf("Gs      : 0x%016x\n", regset.Gs      )
 }
 
+func resolve_address(pid int,
+        bp_addr uintptr,
+        got *heap_functions_got,
+        got_index int,
+        bp *breakpoint,
+        breakpoints *map[uintptr]*breakpoint) {
+    delete(*breakpoints, bp_addr)
+    got.addrs[got_index] = uintptr(ptrace_read(pid, got.got_offsets[got_index]))
+    init_breakpoint(pid, got.addrs[got_index], bp)
+    (*breakpoints)[got.addrs[got_index]] = bp
+    got.resolved[got_index] = true
+}
+
+func return_from_function(pid int, return_addr uintptr, bp_ret *breakpoint, regset *syscall.PtraceRegs) int {
+    init_breakpoint(pid, return_addr, bp_ret)
+    set_breakpoint(pid, bp_ret)
+    var status int = child_continue(pid, regset)
+    if status != 0 {
+        return 1
+    }
+    return 0
+}
+
 func breakpoint_step(pid int, bp *breakpoint, regset *syscall.PtraceRegs) int {
     var err error
 

@@ -40,8 +40,7 @@ func goose_loop(pid int, got *heap_functions_got) int {
             return 1
         }
         /* Subtract 1 from Rip */
-        regset.Rip--
-        var bp_addr uintptr = uintptr(regset.Rip)
+        var bp_addr uintptr = uintptr(regset.Rip - 1)
         var bp *breakpoint = breakpoints[bp_addr]
 
         /* Get return address */
@@ -58,85 +57,31 @@ func goose_loop(pid int, got *heap_functions_got) int {
         switch(bp.index) {
         case CALLOC:
             fmt.Printf("calloc(%d, %d)\n", rdi, rsi)
-            /* Break on return address */
-            init_breakpoint(pid, return_addr, &bp_ret)
-            set_breakpoint(pid, &bp_ret)
-            status = child_continue(pid, &regset)
-            if status != 0 {
-                return 1
-            }
-            regset.Rip--
+            return_from_function(pid, return_addr, &bp_ret, &regset)
             breakpoint_step(pid, &bp_ret, &regset)
-            /* child has returned from function */
             if !got.resolved[CALLOC] {
-                /* Read in new address */
-                delete(breakpoints, bp_addr)
-                got.addrs[CALLOC] = uintptr(ptrace_read(pid, got.got_offsets[CALLOC]))
-                init_breakpoint(pid, got.addrs[CALLOC], bp)
-                breakpoints[got.addrs[CALLOC]] = bp
-                got.resolved[CALLOC] = true
+                resolve_address(pid, bp_addr, got, CALLOC, bp, &breakpoints)
             }
         case MALLOC:
-            /* Break on return address */
-            init_breakpoint(pid, return_addr, &bp_ret)
-            set_breakpoint(pid, &bp_ret)
-
             fmt.Printf("malloc(%d)\n", rdi)
-
-            status = child_continue(pid, &regset)
-            if status != 0 {
-                return 1
-            }
-            regset.Rip--
+            return_from_function(pid, return_addr, &bp_ret, &regset)
             breakpoint_step(pid, &bp_ret, &regset)
-
             if !got.resolved[MALLOC] {
-                /* Read in new address */
-                delete(breakpoints, bp_addr)
-                got.addrs[MALLOC] = uintptr(ptrace_read(pid, got.got_offsets[MALLOC]))
-                init_breakpoint(pid, got.addrs[MALLOC], bp)
-                breakpoints[got.addrs[MALLOC]] = bp
-                got.resolved[MALLOC] = true
+                resolve_address(pid, bp_addr, got, MALLOC, bp, &breakpoints)
             }
         case REALLOC:
-            /* Break on return address */
-            init_breakpoint(pid, return_addr, &bp_ret)
-            set_breakpoint(pid, &bp_ret)
-
             fmt.Printf("realloc(0x%016x, %d)\n", rdi, rsi)
-            status = child_continue(pid, &regset)
-            if status != 0 {
-                return 1
-            }
-            regset.Rip--
+            return_from_function(pid, return_addr, &bp_ret, &regset)
             breakpoint_step(pid, &bp_ret, &regset)
             if !got.resolved[REALLOC] {
-                /* Read in new address */
-                delete(breakpoints, bp_addr)
-                got.addrs[REALLOC] = uintptr(ptrace_read(pid, got.got_offsets[REALLOC]))
-                init_breakpoint(pid, got.addrs[REALLOC], bp)
-                breakpoints[got.addrs[REALLOC]] = bp
-                got.resolved[REALLOC] = true
+                resolve_address(pid, bp_addr, got, REALLOC, bp, &breakpoints)
             }
-
         case FREE:
             fmt.Printf("free(0x%016x)\n", rdi)
-            /* If symbol not resolved by dynamic linker/loader, break on return address */
             if !got.resolved[FREE] {
-                 /* Break on return address */
-                init_breakpoint(pid, return_addr, &bp_ret)
-                set_breakpoint(pid, &bp_ret)
-                status = child_continue(pid, &regset)
-                if status != 0 {
-                    return 1
-                }
-                regset.Rip--
+                return_from_function(pid, return_addr, &bp_ret, &regset)
                 breakpoint_step(pid, &bp_ret, &regset)
-                delete(breakpoints, bp_addr)
-                got.addrs[FREE] = uintptr(ptrace_read(pid, got.got_offsets[FREE]))
-                init_breakpoint(pid, got.addrs[FREE], bp)
-                breakpoints[got.addrs[FREE]] = bp
-                got.resolved[FREE] = true
+                resolve_address(pid, bp_addr, got, FREE, bp, &breakpoints)
             }
         default:
             fmt.Printf("Unrecognized Breakpoint: 0x%016x\n", bp_addr)
