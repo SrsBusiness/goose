@@ -84,6 +84,7 @@ func goose_loop(pid int, got *heap_functions_got) int {
             return_from_function(pid, return_addr, &bp_ret, &regset)
             /* Retrieve return value from RAX */
             fmt.Printf("realloc(0x%016x, %d) -> 0x%016x\n", rdi, rsi, regset.Rax)
+            delete(allocd_bufs, uintptr(rdi))
             var new_buf *allocated_buffer = new(allocated_buffer)
             new_buf.addr = uintptr(regset.Rax)
             new_buf.size = rsi
