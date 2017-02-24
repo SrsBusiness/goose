@@ -1,6 +1,8 @@
 # goose
 Runtime dynamic memory checker written in Golang
 
+## Only tested on x86_64 Linux ##
+
 Demonstration:
 
 test.c:
